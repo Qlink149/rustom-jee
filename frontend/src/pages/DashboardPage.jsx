@@ -485,7 +485,7 @@ const DashboardPage = () => {
                   >
                     <h3 className="font-serif text-xl text-white mb-2">Disposition Distribution</h3>
                     <p className="text-[#737373] text-xs mb-4">
-                      Futwork call outcomes · Click a slice to view matching calls in AI Calling
+                      Engine call outcomes · Click a slice to view matching calls in AI Calling
                     </p>
                     <div className="flex items-center justify-center">
                       <ResponsiveContainer width="100%" height={280}>
