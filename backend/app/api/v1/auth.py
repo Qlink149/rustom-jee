@@ -1,9 +1,11 @@
+import logging
 import uuid
 from datetime import datetime, timezone
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pymongo.errors import PyMongoError
 
 from ...core.config import settings
 from ...core.database import get_db
@@ -18,6 +20,7 @@ from ...core.security import (
 from ...models.user import RefreshTokenRequest, Token, UserCreate, UserResponse
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.post("/register", response_model=UserResponse)
@@ -54,7 +57,15 @@ async def register(user_data: UserCreate, db=Depends(get_db)):
 
 @router.post("/login", response_model=Token)
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db=Depends(get_db)):
-    user = await db.users.find_one({"email": form_data.username}, {"_id": 0})
+    try:
+        user = await db.users.find_one({"email": form_data.username}, {"_id": 0})
+    except PyMongoError as e:
+        logger.error("Login failed — database error: %s", e)
+        raise HTTPException(
+            status_code=503,
+            detail="Database unavailable. Check MONGO_URL on Railway and MongoDB Atlas network access.",
+        ) from e
+
     if not user or not verify_password(form_data.password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 

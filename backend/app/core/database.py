@@ -2,11 +2,26 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
+import certifi
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import PyMongoError
 
 from .config import settings
 
 logger = logging.getLogger(__name__)
+
+
+def _mongo_client_kwargs() -> dict:
+    """TLS + timeouts for Atlas / cloud MongoDB (fixes SSL handshake on Railway)."""
+    kwargs = {
+        "serverSelectionTimeoutMS": 15_000,
+        "connectTimeoutMS": 15_000,
+        "socketTimeoutMS": 30_000,
+    }
+    url = (settings.MONGO_URL or "").lower()
+    if url.startswith("mongodb+srv://") or "mongodb.net" in url:
+        kwargs["tlsCAFile"] = certifi.where()
+    return kwargs
 
 class Database:
     client: AsyncIOMotorClient = None
@@ -18,10 +33,27 @@ async def get_db():
     return db_instance.db
 
 async def connect_to_mongo():
-    logger.info("Connecting to MongoDB...")
-    db_instance.client = AsyncIOMotorClient(settings.MONGO_URL)
+    if not (settings.MONGO_URL or "").strip():
+        raise RuntimeError("MONGO_URL environment variable is not set")
+    logger.info("Connecting to MongoDB (db=%s)...", settings.DB_NAME)
+    db_instance.client = AsyncIOMotorClient(
+        settings.MONGO_URL, **_mongo_client_kwargs()
+    )
     db_instance.db = db_instance.client[settings.DB_NAME]
+    await db_instance.client.admin.command("ping")
     logger.info("Connected to MongoDB")
+
+
+async def check_mongo_connection() -> bool:
+    """Lightweight ping for health checks."""
+    if db_instance.client is None:
+        return False
+    try:
+        await db_instance.client.admin.command("ping")
+        return True
+    except PyMongoError as e:
+        logger.warning("MongoDB ping failed: %s", e)
+        return False
 
 async def close_mongo_connection():
     logger.info("Closing MongoDB connection...")
@@ -29,8 +61,18 @@ async def close_mongo_connection():
     logger.info("Closed MongoDB connection")
 
 async def initialize_db():
-    """Create indexes if they don't exist"""
+    """Create indexes if they don't exist."""
     db = db_instance.db
+    try:
+        await _initialize_db_indexes(db)
+        await _seed_default_users(db)
+        logger.info("Database indexes initialized")
+    except PyMongoError as e:
+        logger.error("Database index initialization failed: %s", e)
+        raise
+
+
+async def _initialize_db_indexes(db):
     # Lead — identity indexes (client_lead_id is the sole business unique key)
     await db.leads.create_index("id", unique=True)
     try:
@@ -126,10 +168,6 @@ async def initialize_db():
     await db.reminder_rules.create_index("id", unique=True)
     await db.reminders.create_index("dedupe_key", unique=True)
     await db.reminders.create_index([("created_at", -1)])
-
-    await _seed_default_users(db)
-
-    logger.info("Database indexes initialized")
 
 
 async def _seed_default_users(db):

@@ -32,7 +32,19 @@ const LoginPage = () => {
       }, 3000);
     } catch (err) {
       const detail = err.response?.data?.detail;
-      setError(typeof detail === "string" ? detail : "Invalid credentials");
+      if (!err.response) {
+        setError(
+          "Cannot reach the API server. Check that the Railway backend is running and REACT_APP_BACKEND_URL is set correctly."
+        );
+      } else if (err.response?.status === 503) {
+        setError(
+          typeof detail === "string"
+            ? detail
+            : "Database unavailable. Check MONGO_URL on Railway."
+        );
+      } else {
+        setError(typeof detail === "string" ? detail : "Invalid credentials");
+      }
       toast.error("Login failed. Please check your credentials.");
       setIsLoading(false);
     }
@@ -52,7 +64,14 @@ const LoginPage = () => {
         navigate(dest, { replace: true });
       }, 3000);
     } catch (err) {
-      setError("Failed to login with demo account");
+      const detail = err.response?.data?.detail;
+      if (!err.response) {
+        setError("Cannot reach the API server. Check Railway backend and REACT_APP_BACKEND_URL.");
+      } else if (err.response?.status === 503) {
+        setError(typeof detail === "string" ? detail : "Database unavailable on Railway.");
+      } else {
+        setError("Failed to login with demo account");
+      }
       setIsLoading(false);
     }
   };

@@ -54,6 +54,20 @@ class Settings:
 
     ROOT_DIR: Path = ROOT_DIR
 
+    # Comma-separated frontend origins, e.g. https://rustom-jee.vercel.app,https://rustomjee.claraai.tech
+    CORS_ORIGINS: str = os.environ.get("CORS_ORIGINS", "").strip()
+
+    @property
+    def cors_origins(self) -> list:
+        if self.CORS_ORIGINS:
+            return [o.strip() for o in self.CORS_ORIGINS.split(",") if o.strip()]
+        return [
+            "https://rustom-jee.vercel.app",
+            "https://rustomjee.claraai.tech",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+        ]
+
     @staticmethod
     def _optional_int(raw: str):
         if not raw:

@@ -5,12 +5,20 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import logging
 
 from app.core.config import settings
-from app.core.database import connect_to_mongo, close_mongo_connection, initialize_db, get_db, db_instance
+from app.core.database import (
+    connect_to_mongo,
+    close_mongo_connection,
+    initialize_db,
+    get_db,
+    db_instance,
+    check_mongo_connection,
+)
 from app.core.time_utils import serialize_datetime_utc
 from app.core.security import get_current_user
 from app.api.v1 import (
@@ -40,14 +48,24 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
-# CORS — allow all origins in development
+_cors_origins = settings.cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Return JSON (with CORS) instead of plain-text 500 that browsers block."""
+    logger.exception("Unhandled error on %s %s: %s", request.method, request.url.path, exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error. Check API logs."},
+    )
 
 
 reminder_task = None
@@ -92,7 +110,13 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    db_ok = await check_mongo_connection()
+    if not db_ok:
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "database": "disconnected"},
+        )
+    return {"status": "healthy", "database": "connected"}
 
 
 # ── API Routers ──────────────────────────────────────────────────────────────
